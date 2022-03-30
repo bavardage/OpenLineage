@@ -317,6 +317,18 @@ def test_create_table():
     assert sql_meta.out_tables == [DbTableMeta("Persons")]
 
 
+@pytest.mark.skipif(provider() == "python", reason="python does not understand DDL")
+def test_create_table_if_not_exists():
+    sql_meta = parse("""
+    CREATE TABLE IF NOT EXISTS popular_orders_day_of_week (
+      order_day_of_week VARCHAR(64) NOT NULL,
+      order_placed_on   TIMESTAMP NOT NULL,
+      orders_placed     INTEGER NOT NULL
+    )""")
+    assert sql_meta.in_tables == []
+    assert sql_meta.out_tables == [DbTableMeta("popular_orders_day_of_week")]
+
+
 @pytest.mark.skipif(provider() == "rust", reason="rust parser does not support multiple stmts")
 def test_parse_multi_statement():
     sql_meta = parse(
