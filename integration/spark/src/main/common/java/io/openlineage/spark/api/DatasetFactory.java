@@ -155,6 +155,7 @@ public abstract class DatasetFactory<D extends OpenLineage.Dataset> {
    * @return
    */
   public D getDataset(
+      // OpenLineageContext context,
       DatasetIdentifier ident,
       StructType schema,
       OpenLineage.LifecycleStateChangeDatasetFacet.LifecycleStateChange lifecycleStateChange) {
@@ -165,6 +166,11 @@ public abstract class DatasetFactory<D extends OpenLineage.Dataset> {
             .lifecycleStateChange(
                 openLineage.newLifecycleStateChangeDatasetFacet(lifecycleStateChange, null))
             .dataSource(PlanUtils.datasourceFacet(openLineage, ident.getNamespace()));
+
+    // TODO: uncomment this and modify underlying visitors
+    // ColumnLevelLineageUtils.buildColumnLineageDatasetFacet(context, schema).ifPresent(facet ->
+    // builder.columnLineage(facet));
+
     return getDataset(ident.getName(), ident.getNamespace(), builder.build());
   }
 
