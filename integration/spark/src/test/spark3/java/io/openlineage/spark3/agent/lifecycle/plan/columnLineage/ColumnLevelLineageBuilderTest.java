@@ -3,8 +3,12 @@ package io.openlineage.spark3.agent.lifecycle.plan.columnLineage;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
+import io.openlineage.client.OpenLineage;
+import io.openlineage.spark.agent.client.OpenLineageClient;
 import io.openlineage.spark.agent.util.DatasetIdentifier;
+import io.openlineage.spark.api.OpenLineageContext;
 import java.util.List;
 import org.apache.commons.lang3.tuple.Pair;
 import org.apache.spark.sql.catalyst.expressions.ExprId;
@@ -12,23 +16,31 @@ import org.apache.spark.sql.types.IntegerType$;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import scala.collection.immutable.HashMap;
 
 class ColumnLevelLineageBuilderTest {
 
+  OpenLineageContext context = mock(OpenLineageContext.class);
+  OpenLineage openLineage = new OpenLineage(OpenLineageClient.OPEN_LINEAGE_CLIENT_URI);
   StructType schema =
       new StructType(
           new StructField[] {
             new StructField("a", IntegerType$.MODULE$, false, new Metadata(new HashMap<>())),
             new StructField("b", IntegerType$.MODULE$, false, new Metadata(new HashMap<>()))
           });
-  ColumnLevelLineageBuilder builder = new ColumnLevelLineageBuilder(schema);
+  ColumnLevelLineageBuilder builder = new ColumnLevelLineageBuilder(schema, context);
 
   ExprId rootExprId = mock(ExprId.class);
   ExprId childExprId = mock(ExprId.class);
   ExprId grandChildExprId1 = mock(ExprId.class);
   ExprId grandChildExprId2 = mock(ExprId.class);
+
+  @BeforeEach
+  public void setup() {
+    when(context.getOpenLineage()).thenReturn(openLineage);
+  }
 
   @Test
   public void testEmptyOutput() {
@@ -90,5 +102,37 @@ class ColumnLevelLineageBuilderTest {
 
     List<Pair<DatasetIdentifier, String>> inputs = builder.getInputsUsedFor("a");
     assertEquals(0, inputs.size());
+  }
+
+  @Test
+  public void testBuild() {
+    DatasetIdentifier diA = new DatasetIdentifier("tableA", "db");
+    DatasetIdentifier diB = new DatasetIdentifier("tableB", "db");
+
+    builder.addOutput(rootExprId, "a");
+    builder.addInput(rootExprId, diA, "inputA");
+    builder.addInput(rootExprId, diB, "inputB");
+
+    List<OpenLineage.ColumnLineageDatasetFacetFieldsAdditionalInputFields> facetFields =
+        builder.build().getAdditionalProperties().get("a").getInputFields();
+
+    assertEquals(2, facetFields.size());
+
+    assertEquals("db", facetFields.get(0).getNamespace());
+    assertEquals("tableA", facetFields.get(0).getName());
+    assertEquals("inputA", facetFields.get(0).getField());
+
+    assertEquals("db", facetFields.get(0).getNamespace());
+    assertEquals("tableA", facetFields.get(0).getName());
+    assertEquals("inputA", facetFields.get(0).getField());
+  }
+
+  @Test
+  public void testBuildWithEmptyInputs() {
+    builder.addOutput(rootExprId, "a");
+    builder.addDependency(rootExprId, childExprId);
+
+    // no inputs
+    assertEquals(0, builder.build().getAdditionalProperties().size());
   }
 }

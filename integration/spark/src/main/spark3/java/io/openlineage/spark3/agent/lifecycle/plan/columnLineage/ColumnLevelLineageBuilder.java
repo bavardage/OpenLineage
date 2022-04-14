@@ -1,7 +1,9 @@
 package io.openlineage.spark3.agent.lifecycle.plan.columnLineage;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.openlineage.client.OpenLineage;
 import io.openlineage.spark.agent.util.DatasetIdentifier;
+import io.openlineage.spark.api.OpenLineageContext;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -26,9 +28,11 @@ class ColumnLevelLineageBuilder {
   private Map<ExprId, List<Pair<DatasetIdentifier, String>>> inputs = new HashMap<>();
   private Map<StructField, ExprId> outputs = new HashMap<>();
   private final StructType schema;
+  private final OpenLineageContext context;
 
-  ColumnLevelLineageBuilder(StructType schema) {
+  ColumnLevelLineageBuilder(StructType schema, OpenLineageContext context) {
     this.schema = schema;
+    this.context = context;
   }
 
   void addInput(ExprId exprId, DatasetIdentifier datasetIdentifier, String attributeName) {
@@ -91,6 +95,40 @@ class ColumnLevelLineageBuilder {
         .append(System.lineSeparator());
 
     return sb.toString();
+  }
+
+  public OpenLineage.ColumnLineageDatasetFacetFields build() {
+    OpenLineage.ColumnLineageDatasetFacetFieldsBuilder fieldsBuilder =
+        context.getOpenLineage().newColumnLineageDatasetFacetFieldsBuilder();
+
+    Arrays.stream(schema.fields())
+        .map(field -> Pair.of(field, getInputsUsedFor(field.name())))
+        .filter(pair -> !pair.getRight().isEmpty())
+        .map(pair -> Pair.of(pair.getLeft(), facetInputFields(pair.getRight())))
+        .forEach(
+            pair ->
+                fieldsBuilder.put(
+                    pair.getLeft().name(),
+                    context
+                        .getOpenLineage()
+                        .newColumnLineageDatasetFacetFieldsAdditionalBuilder()
+                        .inputFields(pair.getRight())
+                        .build()));
+
+    return fieldsBuilder.build();
+  }
+
+  private List<OpenLineage.ColumnLineageDatasetFacetFieldsAdditionalInputFields> facetInputFields(
+      List<Pair<DatasetIdentifier, String>> inputFields) {
+    return inputFields.stream()
+        .map(
+            field ->
+                new OpenLineage.ColumnLineageDatasetFacetFieldsAdditionalInputFieldsBuilder()
+                    .namespace(field.getLeft().getNamespace())
+                    .name(field.getLeft().getName())
+                    .field(field.getRight())
+                    .build())
+        .collect(Collectors.toList());
   }
 
   List<Pair<DatasetIdentifier, String>> getInputsUsedFor(String outputName) {

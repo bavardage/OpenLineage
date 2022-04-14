@@ -1,18 +1,23 @@
 package io.openlineage.spark3.agent.lifecycle.plan.columnLineage;
 
+import io.openlineage.spark.agent.lifecycle.Rdds;
 import io.openlineage.spark.agent.util.DatasetIdentifier;
 import io.openlineage.spark.agent.util.PlanUtils;
 import io.openlineage.spark.agent.util.ScalaConversionUtils;
 import io.openlineage.spark.api.OpenLineageContext;
 import io.openlineage.spark3.agent.utils.PlanUtils3;
 import java.net.URI;
-import java.util.Optional;
+import java.util.Collections;
+import java.util.List;
+import java.util.stream.Collectors;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.spark.rdd.RDD;
 import org.apache.spark.sql.catalyst.catalog.CatalogTable;
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.UnaryNode;
+import org.apache.spark.sql.execution.LogicalRDD;
 import org.apache.spark.sql.execution.datasources.LogicalRelation;
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation;
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation;
@@ -48,8 +53,8 @@ class InputFieldsCollector {
   }
 
   private void discoverInputsFromNode(LogicalPlan node, ColumnLevelLineageBuilder builder) {
-    extractDatasetIdentifier(node)
-        .ifPresent(
+    extractDatasetIdentifier(node).stream()
+        .forEach(
             di ->
                 ScalaConversionUtils.fromSeq(node.output()).stream()
                     .filter(attr -> attr instanceof AttributeReference)
@@ -57,7 +62,7 @@ class InputFieldsCollector {
                     .forEach(attr -> builder.addInput(attr.exprId(), di, attr.name())));
   }
 
-  private Optional<DatasetIdentifier> extractDatasetIdentifier(LogicalPlan node) {
+  private List<DatasetIdentifier> extractDatasetIdentifier(LogicalPlan node) {
     if (node instanceof DataSourceV2Relation) {
       return extractDatasetIdentifier((DataSourceV2Relation) node);
     } else if (node instanceof DataSourceV2ScanRelation) {
@@ -67,24 +72,33 @@ class InputFieldsCollector {
     } else if (node instanceof LogicalRelation
         && ((LogicalRelation) node).catalogTable().isDefined()) {
       return extractDatasetIdentifier(((LogicalRelation) node).catalogTable().get());
-    } else {
-      // hmy -> leaf node we don't understand
-      log.info("Not able to recognize column lineage for LeafNode: {}", node.getClass().getName());
+    } else if (node instanceof LogicalRDD) {
+      return extractDatasetIdentifier((LogicalRDD) node);
     }
-
-    return Optional.empty();
+    return Collections.emptyList();
   }
 
-  private Optional<DatasetIdentifier> extractDatasetIdentifier(DataSourceV2Relation relation) {
-    return PlanUtils3.getDatasetIdentifier(context, relation);
+  private List<DatasetIdentifier> extractDatasetIdentifier(LogicalRDD logicalRDD) {
+    List<RDD<?>> fileLikeRdds = Rdds.findFileLikeRdds(logicalRDD.rdd());
+    return PlanUtils.findRDDPaths(fileLikeRdds).stream()
+        .map(
+            path ->
+                new DatasetIdentifier(path.toUri().getPath(), PlanUtils.namespaceUri(path.toUri())))
+        .collect(Collectors.toList());
   }
 
-  private Optional<DatasetIdentifier> extractDatasetIdentifier(CatalogTable catalogTable) {
+  private List<DatasetIdentifier> extractDatasetIdentifier(DataSourceV2Relation relation) {
+    return PlanUtils3.getDatasetIdentifier(context, relation)
+        .map(Collections::singletonList)
+        .orElse(Collections.emptyList());
+  }
+
+  private List<DatasetIdentifier> extractDatasetIdentifier(CatalogTable catalogTable) {
     URI location = catalogTable.location();
     if (location == null) {
-      return Optional.empty();
+      return Collections.emptyList();
     } else {
-      return Optional.of(
+      return Collections.singletonList(
           new DatasetIdentifier(
               catalogTable.location().getPath(), PlanUtils.namespaceUri(catalogTable.location())));
     }

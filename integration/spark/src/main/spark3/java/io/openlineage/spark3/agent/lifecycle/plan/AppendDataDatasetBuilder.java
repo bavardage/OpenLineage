@@ -6,8 +6,10 @@ import io.openlineage.client.OpenLineage;
 import io.openlineage.spark.api.AbstractQueryPlanOutputDatasetBuilder;
 import io.openlineage.spark.api.DatasetFactory;
 import io.openlineage.spark.api.OpenLineageContext;
+import io.openlineage.spark3.agent.lifecycle.plan.columnLineage.ColumnLevelLineageUtils;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.spark.sql.catalyst.plans.logical.AppendData;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
@@ -39,8 +41,18 @@ public class AppendDataDatasetBuilder extends AbstractQueryPlanOutputDatasetBuil
     LogicalPlan logicalPlan = (LogicalPlan) ((AppendData) x).table();
 
     if (logicalPlan instanceof DataSourceV2Relation) {
-      return new DataSourceV2RelationOutputDatasetBuilder(context, factory)
-          .apply((DataSourceV2Relation) logicalPlan);
+      DataSourceV2Relation relation = (DataSourceV2Relation) logicalPlan;
+      Optional<OpenLineage.OutputDataset> outputDataset =
+          new DataSourceV2RelationOutputDatasetBuilder(context, factory)
+              .apply((DataSourceV2Relation) logicalPlan).stream().findFirst();
+
+      return ColumnLevelLineageUtils.buildColumnLineageDatasetFacet(context, (relation).schema())
+          .filter(facet -> outputDataset.isPresent())
+          .map(
+              columnFacet ->
+                  ColumnLevelLineageUtils.rewriteOutputDataset(outputDataset.get(), columnFacet))
+          .map(el -> Collections.singletonList(el))
+          .orElse(Collections.emptyList());
     } else {
       return Collections.emptyList();
     }

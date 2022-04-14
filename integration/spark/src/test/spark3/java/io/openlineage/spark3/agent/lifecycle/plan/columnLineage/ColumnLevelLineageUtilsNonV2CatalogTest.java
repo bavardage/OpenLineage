@@ -14,12 +14,15 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.sql.SparkSession;
+import org.apache.spark.sql.SparkSession$;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.execution.QueryExecution;
 import org.apache.spark.sql.types.IntegerType$;
 import org.apache.spark.sql.types.Metadata;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import scala.collection.immutable.HashMap;
@@ -37,6 +40,18 @@ public class ColumnLevelLineageUtilsNonV2CatalogTest {
             new StructField("a", IntegerType$.MODULE$, false, new Metadata(new HashMap<>())),
             new StructField("b", IntegerType$.MODULE$, false, new Metadata(new HashMap<>()))
           });
+
+  @BeforeAll
+  @SneakyThrows
+  public static void beforeAll() {
+    SparkSession$.MODULE$.cleanupAnyExistingSession();
+  }
+
+  @AfterAll
+  @SneakyThrows
+  public static void afterAll() {
+    SparkSession$.MODULE$.cleanupAnyExistingSession();
+  }
 
   @BeforeEach
   @SneakyThrows
@@ -61,9 +76,7 @@ public class ColumnLevelLineageUtilsNonV2CatalogTest {
             .build();
 
     FileSystem.get(spark.sparkContext().hadoopConfiguration())
-        .delete(new Path("spark-warehouse"), true);
-    FileSystem.get(spark.sparkContext().hadoopConfiguration())
-        .delete(new Path("/tmp/column_level_lineage/"), true);
+        .delete(new Path("/tmp/column_non_v2/"), true);
 
     spark.sql("DROP TABLE IF EXISTS t1");
     spark.sql("DROP TABLE IF EXISTS t2");
@@ -72,24 +85,24 @@ public class ColumnLevelLineageUtilsNonV2CatalogTest {
 
   @Test
   public void testNonV2CreateTableAsSelect() {
-    spark.sql("CREATE TABLE t1 (a int, b int)");
+    spark.sql("CREATE TABLE t1 (a int, b int) LOCATION '/tmp/column_non_v2/t1'");
     spark.sql("INSERT INTO t1 VALUES (1,2)");
-    spark.sql("CREATE TABLE t2 AS SELECT * FROM t1;");
+    spark.sql("CREATE TABLE t2 LOCATION '/tmp/column_non_v2/t2' AS SELECT * FROM t1");
 
     LogicalPlan plan = LastQueryExecutionSparkEventListener.getLastExecutedLogicalPlan().get();
     when(queryExecution.optimizedPlan()).thenReturn(plan);
     OpenLineage.ColumnLineageDatasetFacet facet =
         ColumnLevelLineageUtils.buildColumnLineageDatasetFacet(context, schema).get();
 
-    assertColumnDependsOn(facet, "a", "file", "spark-warehouse/t1", "a");
-    assertColumnDependsOn(facet, "b", "file", "spark-warehouse/t1", "b");
+    assertColumnDependsOn(facet, "a", "file", "column_non_v2/t1", "a");
+    assertColumnDependsOn(facet, "b", "file", "column_non_v2/t1", "b");
   }
 
   @Test
   public void testNonV2CatalogInsertIntoTable() {
-    spark.sql("CREATE TABLE t1 (a int, b int)");
+    spark.sql("CREATE TABLE t1 (a int, b int) LOCATION '/tmp/column_non_v2/t1'");
     spark.sql("INSERT INTO t1 VALUES (1,2)");
-    spark.sql("CREATE TABLE t2 (a int, b int)");
+    spark.sql("CREATE TABLE t2 (a int, b int) LOCATION '/tmp/column_non_v2/t2'");
     spark.sql("INSERT INTO t2 SELECT * FROM t1");
 
     LogicalPlan plan = LastQueryExecutionSparkEventListener.getLastExecutedLogicalPlan().get();
@@ -97,8 +110,8 @@ public class ColumnLevelLineageUtilsNonV2CatalogTest {
     OpenLineage.ColumnLineageDatasetFacet facet =
         ColumnLevelLineageUtils.buildColumnLineageDatasetFacet(context, schema).get();
 
-    assertColumnDependsOn(facet, "a", "file", "spark-warehouse/t1", "a");
-    assertColumnDependsOn(facet, "b", "file", "spark-warehouse/t1", "b");
+    assertColumnDependsOn(facet, "a", "file", "column_non_v2/t1", "a");
+    assertColumnDependsOn(facet, "b", "file", "column_non_v2/t1", "b");
   }
 
   private void assertColumnDependsOn(
@@ -108,7 +121,7 @@ public class ColumnLevelLineageUtilsNonV2CatalogTest {
       String expectedName,
       String expectedInputField) {
     assertTrue(
-        facet.getFields().getAdditionalProperties().get(outputColumn).stream()
+        facet.getFields().getAdditionalProperties().get(outputColumn).getInputFields().stream()
             .filter(f -> f.getNamespace().equalsIgnoreCase(expectedNamespace))
             .filter(f -> f.getName().endsWith(expectedName))
             .filter(f -> f.getField().equalsIgnoreCase(expectedInputField))

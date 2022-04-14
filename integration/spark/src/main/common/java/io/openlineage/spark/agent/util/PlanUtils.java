@@ -7,6 +7,7 @@ import io.openlineage.spark.agent.client.OpenLineageClient;
 import java.io.IOException;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.List;
@@ -14,9 +15,14 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.mapred.FileInputFormat;
+import org.apache.spark.rdd.HadoopRDD;
+import org.apache.spark.rdd.RDD;
+import org.apache.spark.sql.execution.datasources.FileScanRDD;
 import org.apache.spark.sql.types.StructField;
 import org.apache.spark.sql.types.StructType;
 import scala.PartialFunction;
@@ -182,5 +188,29 @@ public class PlanUtils {
       log.warn("Unable to get file system for path ", e);
       return p;
     }
+  }
+
+  public static List<Path> findRDDPaths(List<RDD<?>> fileRdds) {
+    return fileRdds.stream()
+        .flatMap(
+            rdd -> {
+              if (rdd instanceof HadoopRDD) {
+                HadoopRDD hadoopRDD = (HadoopRDD) rdd;
+                Path[] inputPaths = FileInputFormat.getInputPaths(hadoopRDD.getJobConf());
+                Configuration hadoopConf = hadoopRDD.getConf();
+                return Arrays.stream(inputPaths)
+                    .map(p -> PlanUtils.getDirectoryPath(p, hadoopConf));
+              } else if (rdd instanceof FileScanRDD) {
+                FileScanRDD fileScanRDD = (FileScanRDD) rdd;
+                return ScalaConversionUtils.fromSeq(fileScanRDD.filePartitions()).stream()
+                    .flatMap(fp -> Arrays.stream(fp.files()))
+                    .map(f -> new Path(f.filePath()).getParent())
+                    .filter(Objects::nonNull);
+              } else {
+                return Stream.empty();
+              }
+            })
+        .distinct()
+        .collect(Collectors.toList());
   }
 }

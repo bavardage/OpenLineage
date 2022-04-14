@@ -7,21 +7,30 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+import io.openlineage.spark.agent.lifecycle.Rdds;
 import io.openlineage.spark.agent.util.DatasetIdentifier;
+import io.openlineage.spark.agent.util.PlanUtils;
 import io.openlineage.spark.api.OpenLineageContext;
 import io.openlineage.spark3.agent.utils.PlanUtils3;
 import java.net.URI;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Optional;
 import lombok.SneakyThrows;
+import org.apache.hadoop.fs.Path;
+import org.apache.spark.rdd.RDD;
+import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.catalyst.catalog.CatalogTable;
 import org.apache.spark.sql.catalyst.catalog.HiveTableRelation;
+import org.apache.spark.sql.catalyst.expressions.Attribute;
 import org.apache.spark.sql.catalyst.expressions.AttributeReference;
 import org.apache.spark.sql.catalyst.expressions.ExprId;
 import org.apache.spark.sql.catalyst.expressions.NamedExpression;
 import org.apache.spark.sql.catalyst.plans.logical.CreateTableAsSelect;
 import org.apache.spark.sql.catalyst.plans.logical.LogicalPlan;
 import org.apache.spark.sql.catalyst.plans.logical.Project;
+import org.apache.spark.sql.execution.LogicalRDD;
 import org.apache.spark.sql.execution.datasources.LogicalRelation;
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2Relation;
 import org.apache.spark.sql.execution.datasources.v2.DataSourceV2ScanRelation;
@@ -110,6 +119,39 @@ public class InputFieldsCollectorTest {
 
     collector.collect(builder);
     verify(builder, times(1)).addInput(exprId, new DatasetIdentifier("/tmp", "file"), "some-name");
+  }
+
+  @Test
+  @SneakyThrows
+  public void collectWhenGrandChildNodeIsLogicalRdd() {
+    LogicalRDD relation = mock(LogicalRDD.class);
+    RDD<InternalRow> rdd = mock(RDD.class);
+    List<RDD<?>> listRDD = Collections.singletonList(rdd);
+    Path path = new Path("file:///tmp");
+
+    when(relation.rdd()).thenReturn(rdd);
+
+    LogicalPlan plan = createPlanWithGrandChild(relation);
+    InputFieldsCollector collector = new InputFieldsCollector(plan, context);
+
+    when(relation.output())
+        .thenReturn(
+            scala.collection.JavaConverters.collectionAsScalaIterableConverter(
+                    Arrays.asList((Attribute) attributeReference))
+                .asScala()
+                .toSeq());
+
+    try (MockedStatic rdds = mockStatic(Rdds.class)) {
+      try (MockedStatic planUtils = mockStatic(PlanUtils.class)) {
+        when(Rdds.findFileLikeRdds(rdd)).thenReturn(listRDD);
+        when(PlanUtils.findRDDPaths(listRDD)).thenReturn(Collections.singletonList(path));
+        when(PlanUtils.namespaceUri(path.toUri())).thenReturn("file");
+
+        collector.collect(builder);
+        verify(builder, times(1))
+            .addInput(exprId, new DatasetIdentifier("/tmp", "file"), "some-name");
+      }
+    }
   }
 
   @Test

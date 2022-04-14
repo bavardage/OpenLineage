@@ -12,27 +12,33 @@
             "description": "Column level lineage that maps output fields into input fields used to evaluate them.",
             "type": "object",
             "additionalProperties": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "namespace": {
-                    "type": "string",
-                    "description": "The input dataset namespace"
-                  },
-                  "name": {
-                    "type": "string",
-                    "description": "The input dataset name"
-                  },
-                  "field": {
-                    "type": "string",
-                    "description": "The input field"
+              "type": "object",
+              "properties": {
+                "inputFields": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "namespace": {
+                        "type": "string",
+                        "description": "The input dataset namespace"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The input dataset name"
+                      },
+                      "field": {
+                        "type": "string",
+                        "description": "The input field"
+                      }
+                    },
+                    "required": [
+                      "namespace", "name", "field"
+                    ]
                   }
                 }
               },
-              "required": [
-                "namespace", "name", "field"
-              ]
+              "required": ["inputFields"]
             }      
           }    
         },

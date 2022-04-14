@@ -22,7 +22,39 @@
           "type" : "long"
         } ]
       },
-      "version" : {}
+      "version" : {},
+      "columnLineage": {
+        "fields": {
+          "event_id": {
+            "inputFields": [
+              {
+                "namespace": "file",
+                "name": "/tmp/v2_merge/db.updates",
+                "field": "a"
+              },
+              {
+                "namespace": "file",
+                "name": "/tmp/v2_merge/db.updates",
+                "field": "a"
+              }
+            ]
+          },
+          "last_updated_at": {
+            "inputFields": [
+              {
+                "namespace": "file",
+                "name": "/tmp/v2_merge/db.updates",
+                "field": "a"
+              },
+              {
+                "namespace": "file",
+                "name": "/tmp/v2_merge/db.updates",
+                "field": "a"
+              }
+            ]
+          }
+        }
+      }
     }
   } ]
 }

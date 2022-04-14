@@ -88,8 +88,6 @@ public class ColumnLevelLineageUtilsV2CatalogTest {
             .build();
 
     FileSystem.get(spark.sparkContext().hadoopConfiguration())
-        .delete(new Path("spark-warehouse"), true);
-    FileSystem.get(spark.sparkContext().hadoopConfiguration())
         .delete(new Path("/tmp/column_level_lineage/"), true);
 
     spark.sql("DROP TABLE IF EXISTS local.db.t1");
@@ -296,11 +294,8 @@ public class ColumnLevelLineageUtilsV2CatalogTest {
       String expectedName,
       String expectedInputField) {
 
-    facet.getFields().getAdditionalProperties().get(outputColumn).stream()
-        .forEach(e -> log.info("{}:{}:{}", e.getNamespace(), e.getName(), e.getField()));
-
     assertTrue(
-        facet.getFields().getAdditionalProperties().get(outputColumn).stream()
+        facet.getFields().getAdditionalProperties().get(outputColumn).getInputFields().stream()
             .filter(f -> f.getNamespace().equalsIgnoreCase(expectedNamespace))
             .filter(f -> f.getName().equals(expectedName))
             .filter(f -> f.getField().equalsIgnoreCase(expectedInputField))
